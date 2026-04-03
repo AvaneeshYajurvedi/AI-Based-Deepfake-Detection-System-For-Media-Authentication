@@ -1,0 +1,35 @@
+# Server
+fastapi
+uvicorn[standard]
+python-multipart
+
+# ML Core
+torch
+torchvision
+torchaudio
+
+# HuggingFace
+transformers
+huggingface-hub
+
+# Face Detection
+facenet-pytorch
+
+# Image Processing
+opencv-python-headless
+Pillow
+
+# Audio Processing
+librosa
+soundfile
+
+# Video Processing
+ffmpeg-python
+
+# Numeric
+numpy
+
+# Utilities
+python-dotenv
+sentencepiece
+timm
