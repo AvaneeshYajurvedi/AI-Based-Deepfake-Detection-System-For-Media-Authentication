@@ -1,17 +1,11 @@
-import { useEffect, useState, useCallback, useRef } from "react";
+import { useEffect, useState, useCallback, useMemo } from "react";
 import { analyzeFile, detectMediaType, MOCK_RESULT, normalizeAnalysisResult } from "./api/deepshield";
-import { BarChart3, CheckCircle, AlertCircle, TrendingUp, Moon, Sun, User, LogIn, UserPlus, LogOut, ChevronDown, CircleUserRound, CircleHelp, BookOpen, Info, CircleQuestionMark, History } from "lucide-react";
+import { FileText, Moon, Sun, CircleHelp, X } from "lucide-react";
 import UploadZone from "./components/UploadZone";
 import ResultPanel from "./components/ResultPanel";
-import ScanHistory from "./components/ScanHistory";
-import Sidebar from "./components/Sidebar";
 import HowItWorks from "./components/HowItWorks";
-import AboutUs from "./components/AboutUs";
-import FAQs from "./components/FAQs";
-import HistoryCenter from "./components/HistoryCenter";
-import StatCard from "./components/StatCard";
-import AuthModal from "./components/AuthModal";
 import SettingsModal from "./components/SettingsModal";
+import ReportViewPage from "./components/forensics/ReportViewPage";
 
 import useTheme from "./hooks/useTheme";
 import useAppRouter from "./router/useAppRouter";
@@ -19,15 +13,17 @@ import { getPageHeaderTitle } from "./router/routes";
 import { API_TARGET, USE_MOCK } from "./services/runtimeConfig";
 
 const SETTINGS_KEY = "deepshield-settings";
-const GUEST_HISTORY_KEY = "deepshield-history-guest";
-const GUEST_ARCHIVE_KEY = "deepshield-history-guest-archived";
+const SESSION_TIMEOUT_SECONDS = 5 * 60;
+const BRAND_LOGO_SRC = "/logo.jpeg";
+const SPLASH_TOTAL_MS = 3000;
+const SPLASH_CLOSE_MS = 700;
+const CYBERCRIME_REPORT_URL = "https://cybercrime.gov.in/Webform/Accept.aspx";
 
 const defaultSettings = {
   theme: "light",
   language: "English",
   notifications: true,
   compactLayout: false,
-  autoSaveHistory: true,
 };
 
 function loadSettings() {
@@ -41,61 +37,26 @@ function loadSettings() {
   }
 }
 
-function readList(storage, key) {
-  try {
-    const value = storage.getItem(key);
-    return value ? JSON.parse(value) : [];
-  } catch {
-    return [];
-  }
-}
-
-function writeList(storage, key, value) {
-  storage.setItem(key, JSON.stringify(value));
-}
-
-function getUserHistoryKeys(user) {
-  if (user?.email) {
-    const safeEmail = user.email.toLowerCase();
-    return {
-      active: `deepshield-history-${safeEmail}`,
-      archived: `deepshield-history-archived-${safeEmail}`,
-      storage: window.localStorage,
-    };
-  }
-
-  return {
-    active: GUEST_HISTORY_KEY,
-    archived: GUEST_ARCHIVE_KEY,
-    storage: window.sessionStorage,
-  };
-}
-
 export default function App() {
   const { theme, isDark, toggleTheme, setTheme } = useTheme();
   const { page, setPage } = useAppRouter();
   const [settingsOpen, setSettingsOpen] = useState(false);
-  const [profileMenuOpen, setProfileMenuOpen] = useState(false);
   const [settings, setSettings] = useState(loadSettings);
-  const profileMenuRef = useRef(null);
-  const [user, setUser] = useState(() => {
-    try {
-      const saved = localStorage.getItem("deepshield-user");
-      return saved ? JSON.parse(saved) : null;
-    } catch {
-      return null;
-    }
-  });
   const [file, setFile] = useState(null);
   const [mediaType, setMediaType] = useState(null);
-  const [status, setStatus] = useState("idle"); // idle | uploading | analyzing | done | error
+  const [status, setStatus] = useState("idle");
   const [progress, setProgress] = useState(0);
   const [scanStep, setScanStep] = useState(0);
   const [result, setResult] = useState(null);
   const [error, setError] = useState(null);
-  const [history, setHistory] = useState([]);
-  const [archivedHistory, setArchivedHistory] = useState([]);
-  const [stats, setStats] = useState({ total: 0, fake: 0, real: 0, uncertain: 0, confSum: 0 });
+  const [sessionActive, setSessionActive] = useState(false);
+  const [sessionRemaining, setSessionRemaining] = useState(SESSION_TIMEOUT_SECONDS);
+  const [howModalOpen, setHowModalOpen] = useState(false);
+  const [howModalClosing, setHowModalClosing] = useState(false);
+  const [howModalAnimStyle, setHowModalAnimStyle] = useState({});
+  const [splashVisible, setSplashVisible] = useState(true);
+  const [splashClosing, setSplashClosing] = useState(false);
+  const [splashAnimStyle, setSplashAnimStyle] = useState({});
 
   useEffect(() => {
     setSettings((current) => (current.theme === theme ? current : { ...current, theme }));
@@ -106,67 +67,40 @@ export default function App() {
   }, [settings]);
 
   useEffect(() => {
-    if (typeof window === "undefined") return;
+    const openTimer = window.setTimeout(() => {
+      const sourceNode = document.getElementById("splash-brand");
+      const targetNode = document.getElementById("brand-anchor");
 
-    const keys = getUserHistoryKeys(user);
-    setHistory(readList(keys.storage, keys.active));
-    setArchivedHistory(readList(keys.storage, keys.archived));
-  }, [user]);
-
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-
-    const keys = getUserHistoryKeys(user);
-    writeList(keys.storage, keys.active, history);
-    writeList(keys.storage, keys.archived, archivedHistory);
-  }, [user, history, archivedHistory]);
-
-  useEffect(() => {
-    const handleClickOutside = (event) => {
-      if (profileMenuRef.current && !profileMenuRef.current.contains(event.target)) {
-        setProfileMenuOpen(false);
+      if (sourceNode && targetNode) {
+        const sourceRect = sourceNode.getBoundingClientRect();
+        const targetRect = targetNode.getBoundingClientRect();
+        const deltaX = targetRect.left + targetRect.width / 2 - (sourceRect.left + sourceRect.width / 2);
+        const deltaY = targetRect.top + targetRect.height / 2 - (sourceRect.top + sourceRect.height / 2);
+        setSplashAnimStyle({
+          "--splash-dx": `${deltaX}px`,
+          "--splash-dy": `${deltaY}px`,
+        });
       }
-    };
 
-    document.addEventListener("mousedown", handleClickOutside);
-    return () => document.removeEventListener("mousedown", handleClickOutside);
+      setSplashClosing(true);
+      window.setTimeout(() => {
+        setSplashVisible(false);
+      }, SPLASH_CLOSE_MS);
+    }, SPLASH_TOTAL_MS - SPLASH_CLOSE_MS);
+
+    return () => window.clearTimeout(openTimer);
   }, []);
 
-  const openAuth = useCallback((mode) => {
-    setPage(mode);
-    setProfileMenuOpen(false);
-  }, []);
+  useEffect(() => {
+    if (page === "how") {
+      setHowModalOpen(true);
+      setPage("dashboard");
+    }
 
-  const handleAuthSubmit = useCallback(({ mode, name, email }) => {
-    const nextUser = {
-      name: name || email.split("@")[0],
-      email,
-      mode,
-    };
-    setUser(nextUser);
-    localStorage.setItem("deepshield-user", JSON.stringify(nextUser));
-    setPage("dashboard");
-  }, []);
-
-  const handleLogout = useCallback(() => {
-    setUser(null);
-    setProfileMenuOpen(false);
-    localStorage.removeItem("deepshield-user");
-  }, []);
-
-  const archiveAllHistory = useCallback(() => {
-    if (!history.length) return;
-    setArchivedHistory((current) => [...history, ...current]);
-    setHistory([]);
-  }, [history]);
-
-  const clearHistory = useCallback(() => {
-    setHistory([]);
-  }, []);
-
-  const clearArchivedHistory = useCallback(() => {
-    setArchivedHistory([]);
-  }, []);
+    if (page === "verifyView") {
+      setHowModalOpen(false);
+    }
+  }, [page, setPage]);
 
   const handleSettingsSave = useCallback((nextSettings) => {
     setSettings(nextSettings);
@@ -175,19 +109,137 @@ export default function App() {
   }, [setTheme]);
 
   const STEPS = ["Uploading file", "Extracting features", "Running model inference", "Generating report"];
+  const normalizedResult = useMemo(() => normalizeAnalysisResult(result, mediaType), [result, mediaType]);
+  const verdictLabel = normalizedResult?.label || "UNCERTAIN";
+
+  const guidelinesSections = useMemo(() => {
+    const riskGroups = verdictLabel === "FAKE"
+      ? [
+          {
+            label: "If FAKE:",
+            bullets: ["🚫 Do not share further", "📢 Report immediately", "🧑‍⚖️ Use as evidence if needed"],
+          },
+        ]
+      : verdictLabel === "REAL"
+        ? [
+            {
+              label: "If REAL:",
+              bullets: ["✅ Safe to use with caution", "⚠️ Still verify source credibility"],
+            },
+          ]
+        : [
+            {
+              label: "If FAKE:",
+              bullets: ["🚫 Do not share further", "📢 Report immediately", "🧑‍⚖️ Use as evidence if needed"],
+            },
+            {
+              label: "If REAL:",
+              bullets: ["✅ Safe to use with caution", "⚠️ Still verify source credibility"],
+            },
+          ];
+
+    return [
+      {
+        title: "🚨 1. Immediate Action Guidelines",
+        intro: "These should always be visible:",
+        bullets: [
+          "⚠️ Do not forward suspicious media without verification",
+          "🔍 Cross-check with trusted news or official sources",
+          "🧾 Preserve original file (do not edit or compress)",
+          "👀 Look for context (date, source, location)",
+          "🧠 Do not rely solely on AI result, use human judgment",
+        ],
+      },
+      {
+        title: "🧑‍⚖️ 2. Reporting & Legal Help",
+        bullets: [
+          "📞 Cyber Crime Helpline: 1930",
+          "🌐 National Cyber Crime Portal: https://cybercrime.gov.in",
+          "🚓 Emergency Number: 112",
+          "📧 Report to platform (YouTube, Instagram, etc.)",
+        ],
+      },
+      {
+        title: "🧾 3. Evidence Handling",
+        bullets: [
+          "📁 Keep original media file intact",
+          "🕒 Save timestamp and source",
+          "📄 Download and preserve AI report (PDF)",
+          "🔐 Use report hash or QR for verification",
+        ],
+      },
+      {
+        title: "🔐 4. Privacy & Safety Notice",
+        bullets: [
+          "🔒 Your uploaded data is not stored",
+          "⚙️ Analysis is session-based",
+          "📡 No personal data is retained",
+        ],
+      },
+      {
+        title: "⚠️ 5. Risk-Based Suggestions",
+        groups: riskGroups,
+      },
+    ];
+  }, [verdictLabel]);
+
+  const resetSession = useCallback((showMessage = false) => {
+    setFile(null);
+    setMediaType(null);
+    setStatus("idle");
+    setProgress(0);
+    setScanStep(0);
+    setResult(null);
+    setError(null);
+    setSessionActive(false);
+    setSessionRemaining(SESSION_TIMEOUT_SECONDS);
+    setPage("dashboard");
+
+    if (showMessage) {
+      window.alert("Session timed out. You have been returned to the home screen.");
+    }
+  }, [setPage]);
+
+  useEffect(() => {
+    if (!sessionActive) return undefined;
+
+    const timer = window.setInterval(() => {
+      setSessionRemaining((current) => {
+        if (current <= 1) {
+          window.clearInterval(timer);
+          resetSession(true);
+          return SESSION_TIMEOUT_SECONDS;
+        }
+        return current - 1;
+      });
+    }, 1000);
+
+    return () => window.clearInterval(timer);
+  }, [sessionActive, resetSession]);
+
+  const handleImmediateTimeout = useCallback(() => {
+    resetSession(false);
+  }, [resetSession]);
 
   const handleFile = useCallback((f) => {
     const type = detectMediaType(f);
-    if (!type) { setError("Unsupported file type. Use image, audio, or video."); return; }
+    if (!type) {
+      setError("Unsupported file type. Use image, audio, or video.");
+      return;
+    }
+
     setFile(f);
     setMediaType(type);
     setResult(null);
     setError(null);
     setStatus("idle");
+    setSessionActive(true);
+    setSessionRemaining(SESSION_TIMEOUT_SECONDS);
   }, []);
 
   const runAnalysis = useCallback(async () => {
     if (!file) return;
+
     setStatus("uploading");
     setProgress(0);
     setScanStep(0);
@@ -196,350 +248,271 @@ export default function App() {
 
     try {
       if (USE_MOCK) {
-        // Simulate scan steps for demo
         for (let i = 0; i < STEPS.length; i++) {
           setScanStep(i);
-          await new Promise(r => setTimeout(r, 800));
+          await new Promise((resolve) => setTimeout(resolve, 700));
         }
         setStatus("done");
-        const r = normalizeAnalysisResult(MOCK_RESULT);
-        setResult(r);
-        if (settings.autoSaveHistory) {
-          addToHistory(file, mediaType, r);
-        }
+        setResult(normalizeAnalysisResult(MOCK_RESULT));
       } else {
         setScanStep(0);
-        const r = normalizeAnalysisResult(await analyzeFile(file, (pct) => {
+        const analyzed = await analyzeFile(file, (pct) => {
           setProgress(pct);
           if (pct > 30) setScanStep(1);
           if (pct > 60) setScanStep(2);
           if (pct > 90) setScanStep(3);
-        }));
+        });
         setStatus("done");
-        setResult(r);
-        if (settings.autoSaveHistory) {
-          addToHistory(file, mediaType, r);
-        }
+        setResult(normalizeAnalysisResult(analyzed));
       }
     } catch (e) {
       setStatus("error");
       setError(e.message);
     }
-  }, [file, mediaType, settings.autoSaveHistory]);
-
-  function addToHistory(f, type, r) {
-    const normalized = normalizeAnalysisResult(r);
-    if (!normalized) return;
-
-    const entry = {
-      id: Date.now(),
-      filename: f.name,
-      type,
-      label: normalized.label,
-      confidence: Math.round(normalized.confidence * 100),
-      risk: Math.round(normalized.manipulation_risk_score * 100),
-      time: new Date().toLocaleTimeString(),
-    };
-    setHistory(prev => [entry, ...prev]);
-    setStats(prev => ({
-      total: prev.total + 1,
-      fake: prev.fake + (normalized.label === "FAKE" ? 1 : 0),
-      real: prev.real + (normalized.label === "REAL" ? 1 : 0),
-      uncertain: prev.uncertain + (normalized.label === "UNCERTAIN" ? 1 : 0),
-      confSum: prev.confSum + Math.round(normalized.confidence * 100),
-    }));
-  }
+  }, [file]);
 
   const isScanning = status === "uploading" || status === "analyzing";
   const spacingClass = settings.compactLayout
-    ? "px-3 pb-8 pt-4 sm:px-4 lg:px-6"
-    : "px-4 pb-10 pt-6 sm:px-6 lg:px-8";
+    ? "px-2 pb-2 pt-2 sm:px-3"
+    : "px-3 pb-3 pt-2 sm:px-4";
+
   const pageTitle = getPageHeaderTitle(page);
+  const minutes = String(Math.floor(sessionRemaining / 60)).padStart(2, "0");
+  const seconds = String(sessionRemaining % 60).padStart(2, "0");
+
+  const toggleHowPage = useCallback(() => {
+    setHowModalOpen(true);
+  }, []);
+
+  const closeHowModal = useCallback(() => {
+    const modalNode = document.getElementById("how-modal-card");
+    const targetNode = document.getElementById("how-toggle-button");
+
+    if (modalNode && targetNode) {
+      const modalRect = modalNode.getBoundingClientRect();
+      const targetRect = targetNode.getBoundingClientRect();
+      const deltaX = targetRect.left + targetRect.width / 2 - (modalRect.left + modalRect.width / 2);
+      const deltaY = targetRect.top + targetRect.height / 2 - (modalRect.top + modalRect.height / 2);
+      setHowModalAnimStyle({
+        "--how-dx": `${deltaX}px`,
+        "--how-dy": `${deltaY}px`,
+      });
+    }
+
+    setHowModalClosing(true);
+    window.setTimeout(() => {
+      setHowModalOpen(false);
+      setHowModalClosing(false);
+      setHowModalAnimStyle({});
+    }, 420);
+  }, []);
 
   return (
-    <div className="min-h-screen bg-gray-50 text-gray-900 transition-colors duration-300 dark:bg-slate-900 dark:text-gray-100">
-      <Sidebar
-        page={page}
-        setPage={setPage}
-        stats={stats}
-      />
-      <main className="min-h-screen md:ml-64">
-        <header className="sticky top-0 z-50 border-b border-gray-200 bg-white/95 px-4 py-4 backdrop-blur transition-colors duration-300 sm:px-6 lg:px-8 dark:border-slate-700 dark:bg-slate-800/90">
-          <div className="flex items-center justify-between gap-3">
-            <div>
-              <span className="text-lg font-semibold tracking-tight text-gray-900 dark:text-gray-100">
-              {pageTitle}
-              </span>
-              <div className="mt-1 text-xs text-gray-500 dark:text-gray-400">
-                {user ? `Signed in as ${user.name}` : "Guest access"}
-              </div>
+    <div className="app-fade-in h-screen overflow-hidden bg-gray-50 text-gray-900 transition-colors duration-300 dark:bg-slate-900 dark:text-gray-100">
+      <main className="flex h-screen flex-col overflow-hidden">
+        <header className="z-50 border-b border-gray-200 bg-white/95 px-3 py-2 backdrop-blur transition-colors duration-300 dark:border-slate-700 dark:bg-slate-800/90 sm:px-4">
+          <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-2">
+            <div className="flex items-center">
+              <button
+                type="button"
+                onClick={() => window.open(CYBERCRIME_REPORT_URL, "_blank", "noopener,noreferrer")}
+                aria-label="Open cybercrime report portal"
+                title="Report cybercrime"
+                className="bubble-btn inline-flex h-[34px] w-[34px] items-center justify-center rounded-full border border-gray-300 bg-gray-100 text-gray-700 transition-colors duration-300 hover:border-[var(--indigo)] hover:text-[var(--indigo)] dark:border-slate-600 dark:bg-slate-700 dark:text-gray-100 dark:hover:border-[var(--indigo-mid)] dark:hover:text-[var(--indigo-mid)]"
+              >
+                <FileText size={16} />
+              </button>
             </div>
-            <div className="flex items-center gap-3">
-              <span className="rounded-full border border-cyan-400/30 bg-cyan-400/10 px-3 py-1 text-xs font-medium uppercase tracking-wide text-cyan-500 dark:text-cyan-300">
-                {USE_MOCK ? "Mock mode" : `Live - ${API_TARGET}`}
+
+            <button
+              type="button"
+              onClick={() => setPage("dashboard")}
+              id="brand-anchor"
+              className="mx-auto inline-flex w-fit items-center gap-2 text-left"
+            >
+              <img
+                src={BRAND_LOGO_SRC}
+                alt="DeepShield logo"
+                className="brand-logo-orb h-8 w-8 rounded-full object-cover"
+              />
+              <span className="brand-wordmark-dual font-[var(--font-head)] text-3xl font-extrabold tracking-tight">DEEPSHIELD</span>
+            </button>
+
+            <div className="ml-auto flex items-center gap-2">
+              <span className="rounded-full border border-cyan-400/30 bg-cyan-400/10 px-2.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-cyan-500 dark:text-cyan-300">
+                {sessionActive ? `Session ${minutes}:${seconds}` : "Session Idle"}
               </span>
-              {user ? (
-                <div ref={profileMenuRef} className="relative">
-                  <button
-                    type="button"
-                    onClick={() => setProfileMenuOpen((current) => !current)}
-                    className="inline-flex items-center gap-2 rounded-xl border border-gray-300 bg-gray-100 px-2 py-1.5 text-sm font-medium text-gray-700 transition-colors hover:border-cyan-400 hover:text-cyan-600 dark:border-slate-600 dark:bg-slate-700 dark:text-gray-100 dark:hover:border-cyan-400 dark:hover:text-cyan-300"
-                  >
-                    <span className="inline-flex h-7 w-7 items-center justify-center rounded-full bg-slate-300 text-slate-600 dark:bg-slate-600 dark:text-slate-200">
-                      <User size={15} />
-                    </span>
-                    <ChevronDown size={14} className={`transition-transform ${profileMenuOpen ? "rotate-180" : ""}`} />
-                  </button>
 
-                  {profileMenuOpen && (
-                    <div className="absolute right-0 top-full z-[70] mt-2 w-72 rounded-2xl border border-gray-200 bg-white p-4 shadow-2xl dark:border-slate-700 dark:bg-slate-800">
-                      <div className="mb-3 flex items-center gap-3">
-                        <span className="inline-flex h-12 w-12 items-center justify-center rounded-full bg-slate-200 text-slate-500 dark:bg-slate-700 dark:text-slate-300">
-                          <User size={26} />
-                        </span>
-                        <div className="min-w-0">
-                          <div className="truncate text-base font-medium text-slate-800 dark:text-slate-100">{user.name}</div>
-                          <div className="truncate text-xs text-slate-500 dark:text-slate-400">{user.email}</div>
-                        </div>
-                      </div>
-
-                      <div className="space-y-1 border-t border-gray-200 pt-3 dark:border-slate-700">
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setProfileMenuOpen(false);
-                            setPage("history");
-                          }}
-                          className="flex w-full items-center gap-2 rounded-lg px-2 py-2 text-left text-base text-slate-700 transition-colors hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-slate-700"
-                        >
-                          <History size={18} />
-                          History
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setProfileMenuOpen(false);
-                            setPage("how");
-                          }}
-                          className="flex w-full items-center gap-2 rounded-lg px-2 py-2 text-left text-base text-slate-700 transition-colors hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-slate-700"
-                        >
-                          <BookOpen size={18} />
-                          How It Works
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setProfileMenuOpen(false);
-                            setPage("about");
-                          }}
-                          className="flex w-full items-center gap-2 rounded-lg px-2 py-2 text-left text-base text-slate-700 transition-colors hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-slate-700"
-                        >
-                          <Info size={18} />
-                          About Us
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setProfileMenuOpen(false);
-                            setPage("faqs");
-                          }}
-                          className="flex w-full items-center gap-2 rounded-lg px-2 py-2 text-left text-base text-slate-700 transition-colors hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-slate-700"
-                        >
-                          <CircleQuestionMark size={18} />
-                          FAQs
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setProfileMenuOpen(false);
-                            setSettingsOpen(true);
-                          }}
-                          className="flex w-full items-center gap-2 rounded-lg px-2 py-2 text-left text-base text-slate-700 transition-colors hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-slate-700"
-                        >
-                          <CircleUserRound size={18} />
-                          Settings
-                        </button>
-                        <button type="button" className="flex w-full items-center gap-2 rounded-lg px-2 py-2 text-left text-base text-slate-700 transition-colors hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-slate-700">
-                          <CircleHelp size={18} />
-                          Get Help
-                        </button>
-                        <button
-                          type="button"
-                          onClick={handleLogout}
-                          className="flex w-full items-center gap-2 rounded-lg px-2 py-2 text-left text-base text-slate-700 transition-colors hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-slate-700"
-                        >
-                          <LogOut size={18} />
-                          Logout
-                        </button>
-                      </div>
-                    </div>
-                  )}
-                </div>
-              ) : (
-                <div className="hidden items-center gap-2 sm:flex">
-                  <button
-                    type="button"
-                    onClick={() => openAuth("login")}
-                    className="inline-flex items-center gap-2 rounded-lg border border-gray-300 bg-gray-100 px-3 py-2 text-sm font-medium text-gray-700 transition-colors hover:border-cyan-400 hover:text-cyan-600 dark:border-slate-600 dark:bg-slate-700 dark:text-gray-100 dark:hover:border-cyan-400 dark:hover:text-cyan-300"
-                  >
-                    <LogIn size={16} />
-                    Login
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => openAuth("signup")}
-                    className="inline-flex items-center gap-2 rounded-lg bg-cyan-500 px-3 py-2 text-sm font-semibold text-slate-950 transition-colors hover:bg-cyan-400"
-                  >
-                    <UserPlus size={16} />
-                    Sign Up
-                  </button>
-                </div>
-              )}
               <button
                 type="button"
                 onClick={toggleTheme}
                 aria-label={isDark ? "Switch to light mode" : "Switch to dark mode"}
-                className="inline-flex items-center justify-center rounded-lg border border-gray-300 bg-gray-100 p-2 text-gray-700 transition-colors duration-300 hover:border-cyan-400 hover:text-cyan-500 dark:border-slate-600 dark:bg-slate-700 dark:text-gray-100 dark:hover:border-cyan-400 dark:hover:text-cyan-300"
+                className="bubble-btn inline-flex h-[34px] w-[34px] items-center justify-center rounded-full border border-gray-300 bg-gray-100 text-gray-700 transition-colors duration-300 hover:border-[var(--indigo)] hover:text-[var(--indigo)] dark:border-slate-600 dark:bg-slate-700 dark:text-gray-100 dark:hover:border-[var(--indigo-mid)] dark:hover:text-[var(--indigo-mid)]"
               >
-                {isDark ? <Sun size={18} /> : <Moon size={18} />}
+                {isDark ? <Sun size={17} /> : <Moon size={17} />}
+              </button>
+
+              <button
+                type="button"
+                onClick={toggleHowPage}
+                aria-label="Toggle How It Works"
+                id="how-toggle-button"
+                className="bubble-btn inline-flex h-[34px] w-[34px] items-center justify-center rounded-full border border-gray-300 bg-gray-100 text-gray-700 transition-colors duration-300 hover:border-[var(--indigo)] hover:text-[var(--indigo)] dark:border-slate-600 dark:bg-slate-700 dark:text-gray-100 dark:hover:border-[var(--indigo-mid)] dark:hover:text-[var(--indigo-mid)]"
+              >
+                <CircleHelp size={16} />
               </button>
             </div>
           </div>
         </header>
 
-        <div className={spacingClass}>
-          {!user && (
-            <div className="mb-6 rounded-2xl border border-cyan-400/20 bg-cyan-50 px-5 py-4 text-sm text-slate-700 shadow-sm transition-colors dark:border-cyan-400/20 dark:bg-slate-800 dark:text-slate-200">
-              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                <div>
-                  <div className="font-semibold text-slate-900 dark:text-slate-100">Sign in to keep your scan history synced.</div>
-                  <div className="mt-1 text-sm text-slate-600 dark:text-slate-300">Create an account or log in to personalize DeepShield.</div>
+        <div className={`${spacingClass} h-[calc(100vh-66px)] overflow-hidden`}>
+          {page === "dashboard" && (
+            <div className="grid h-full grid-cols-[300px_minmax(0,1fr)] gap-3 overflow-hidden">
+              <div className="grid h-full grid-rows-[auto_1fr] gap-3 overflow-hidden">
+                <div className="app-panel-enter rounded-xl border border-gray-200 bg-white shadow-sm transition-colors duration-300 dark:border-slate-700 dark:bg-slate-800">
+                  <div className="flex items-center justify-between border-b border-gray-200 px-4 py-2.5 dark:border-slate-700">
+                    <h2 className="text-sm font-semibold text-gray-900 dark:text-gray-100">Upload File</h2>
+                    <span
+                      className="rounded-full border border-gray-300 bg-gray-100 px-2.5 py-0.5 text-[10px] font-medium uppercase tracking-wider text-gray-600 transition-colors duration-300 dark:border-slate-600 dark:bg-slate-700 dark:text-gray-300"
+                      data-type={mediaType}
+                    >
+                      {mediaType || "auto-detect"}
+                    </span>
+                  </div>
+
+                  <UploadZone
+                    file={file}
+                    onFile={handleFile}
+                    isScanning={isScanning}
+                    scanStep={scanStep}
+                    steps={STEPS}
+                    progress={progress}
+                    error={error}
+                  />
+
+                  {file && !isScanning && (
+                    <button
+                      className="bubble-btn mx-4 mb-4 inline-flex w-[calc(100%-2rem)] items-center justify-center rounded-lg bg-cyan-500 px-3 py-2 text-sm font-semibold text-slate-900 transition-colors duration-300 hover:bg-cyan-400"
+                      onClick={runAnalysis}
+                    >
+                      Analyze File
+                    </button>
+                  )}
                 </div>
-                <div className="flex gap-2">
-                  <button
-                    type="button"
-                    onClick={() => openAuth("login")}
-                    className="inline-flex items-center gap-2 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700 transition-colors hover:border-cyan-400 hover:text-cyan-600 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-100 dark:hover:border-cyan-400 dark:hover:text-cyan-300"
-                  >
-                    <LogIn size={16} />
-                    Login
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => openAuth("signup")}
-                    className="inline-flex items-center gap-2 rounded-lg bg-cyan-500 px-3 py-2 text-sm font-semibold text-slate-950 transition-colors hover:bg-cyan-400"
-                  >
-                    <UserPlus size={16} />
-                    Sign Up
-                  </button>
+
+                <div className="app-panel-enter flex h-full min-h-0 flex-col rounded-xl border border-gray-200 bg-white shadow-sm transition-colors duration-300 dark:border-slate-700 dark:bg-slate-800">
+                  <div className="border-b border-gray-200 px-4 py-2 dark:border-slate-700">
+                    <h3 className="text-xs font-semibold uppercase tracking-[0.12em] text-gray-600 dark:text-gray-300">Guidelines</h3>
+                  </div>
+                  <div className="flex-1 overflow-hidden px-3 py-2">
+                    <div className="info-scroll-track text-[11px] text-gray-700 dark:text-gray-200">
+                      <div className="info-scroll-group">
+                        {guidelinesSections.map((section, index) => (
+                          <div key={`a-${index}`} className="mb-4">
+                            <h4 className="mb-1 text-sm font-semibold text-gray-900 dark:text-gray-100">{section.title}</h4>
+                            {section.intro && <p className="mb-1 text-[11px] text-gray-600 dark:text-gray-300">{section.intro}</p>}
+                            {section.bullets && (
+                              <ul className="list-disc space-y-1 pl-4">
+                                {section.bullets.map((bullet, bulletIndex) => (
+                                  <li key={`a-b-${index}-${bulletIndex}`}>{bullet}</li>
+                                ))}
+                              </ul>
+                            )}
+                            {section.groups && (
+                              <div className="space-y-2">
+                                {section.groups.map((group, groupIndex) => (
+                                  <div key={`a-g-${index}-${groupIndex}`}>
+                                    <p className="mb-1 text-[11px] font-semibold text-gray-800 dark:text-gray-200">{group.label}</p>
+                                    <ul className="list-disc space-y-1 pl-4">
+                                      {group.bullets.map((bullet, bulletIndex) => (
+                                        <li key={`a-g-b-${index}-${groupIndex}-${bulletIndex}`}>{bullet}</li>
+                                      ))}
+                                    </ul>
+                                  </div>
+                                ))}
+                              </div>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                      <div className="info-scroll-group" aria-hidden="true">
+                        {guidelinesSections.map((section, index) => (
+                          <div key={`b-${index}`} className="mb-4">
+                            <h4 className="mb-1 text-sm font-semibold text-gray-900 dark:text-gray-100">{section.title}</h4>
+                            {section.intro && <p className="mb-1 text-[11px] text-gray-600 dark:text-gray-300">{section.intro}</p>}
+                            {section.bullets && (
+                              <ul className="list-disc space-y-1 pl-4">
+                                {section.bullets.map((bullet, bulletIndex) => (
+                                  <li key={`b-b-${index}-${bulletIndex}`}>{bullet}</li>
+                                ))}
+                              </ul>
+                            )}
+                            {section.groups && (
+                              <div className="space-y-2">
+                                {section.groups.map((group, groupIndex) => (
+                                  <div key={`b-g-${index}-${groupIndex}`}>
+                                    <p className="mb-1 text-[11px] font-semibold text-gray-800 dark:text-gray-200">{group.label}</p>
+                                    <ul className="list-disc space-y-1 pl-4">
+                                      {group.bullets.map((bullet, bulletIndex) => (
+                                        <li key={`b-g-b-${index}-${groupIndex}-${bulletIndex}`}>{bullet}</li>
+                                      ))}
+                                    </ul>
+                                  </div>
+                                ))}
+                              </div>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                      <div className="info-scroll-group" aria-hidden="true">
+                        {guidelinesSections.map((section, index) => (
+                          <div key={`c-${index}`} className="mb-4">
+                            <h4 className="mb-1 text-sm font-semibold text-gray-900 dark:text-gray-100">{section.title}</h4>
+                            {section.intro && <p className="mb-1 text-[11px] text-gray-600 dark:text-gray-300">{section.intro}</p>}
+                            {section.bullets && (
+                              <ul className="list-disc space-y-1 pl-4">
+                                {section.bullets.map((bullet, bulletIndex) => (
+                                  <li key={`c-b-${index}-${bulletIndex}`}>{bullet}</li>
+                                ))}
+                              </ul>
+                            )}
+                            {section.groups && (
+                              <div className="space-y-2">
+                                {section.groups.map((group, groupIndex) => (
+                                  <div key={`c-g-${index}-${groupIndex}`}>
+                                    <p className="mb-1 text-[11px] font-semibold text-gray-800 dark:text-gray-200">{group.label}</p>
+                                    <ul className="list-disc space-y-1 pl-4">
+                                      {group.bullets.map((bullet, bulletIndex) => (
+                                        <li key={`c-g-b-${index}-${groupIndex}-${bulletIndex}`}>{bullet}</li>
+                                      ))}
+                                    </ul>
+                                  </div>
+                                ))}
+                              </div>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
                 </div>
+              </div>
+
+              <div className="h-full overflow-hidden">
+                <ResultPanel
+                  result={result}
+                  mediaType={mediaType}
+                  filename={file?.name}
+                  status={status}
+                  file={file}
+                  onPdfSessionTimeout={handleImmediateTimeout}
+                />
               </div>
             </div>
           )}
-          {(page === "login" || page === "signup") && (
-            <AuthModal
-              open
-              mode={page}
-              variant="page"
-              onClose={() => setPage("dashboard")}
-              onSubmit={handleAuthSubmit}
-            />
-          )}
-
-          {page === "dashboard" && (
-            <>
-              <div className="mb-6 grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
-                <StatCard
-                  icon={BarChart3}
-                  label="Total Scanned"
-                  value={stats.total}
-                  tone="primary"
-                />
-                <StatCard
-                  icon={AlertCircle}
-                  label="Fakes Detected"
-                  value={stats.fake}
-                  tone="danger"
-                  isHighlight
-                />
-                <StatCard
-                  icon={CheckCircle}
-                  label="Confirmed Real"
-                  value={stats.real}
-                  tone="success"
-                />
-                <StatCard
-                  icon={TrendingUp}
-                  label="Avg Confidence"
-                  value={stats.total ? Math.round(stats.confSum / stats.total) + "%" : "—"}
-                  tone="warning"
-                />
-              </div>
-
-              <div className="mb-5 grid grid-cols-1 gap-5 xl:grid-cols-[380px_minmax(0,1fr)]">
-                <div>
-                  <div className="rounded-xl border border-gray-200 bg-white shadow-sm transition-colors duration-300 dark:border-slate-700 dark:bg-slate-800">
-                    <div className="flex items-center justify-between border-b border-gray-200 px-5 py-4 dark:border-slate-700">
-                      <h2 className="text-base font-semibold text-gray-900 dark:text-gray-100">Upload File</h2>
-                      <span
-                        className="rounded-full border border-gray-300 bg-gray-100 px-3 py-1 text-[11px] font-medium uppercase tracking-wider text-gray-600 transition-colors duration-300 dark:border-slate-600 dark:bg-slate-700 dark:text-gray-300"
-                        data-type={mediaType}
-                      >
-                        {mediaType || "auto-detect"}
-                      </span>
-                    </div>
-                    <UploadZone
-                      file={file}
-                      onFile={handleFile}
-                      isScanning={isScanning}
-                      scanStep={scanStep}
-                      steps={STEPS}
-                      progress={progress}
-                      error={error}
-                    />
-                    {file && !isScanning && (
-                      <button
-                        className="mx-5 mb-5 inline-flex w-[calc(100%-2.5rem)] items-center justify-center rounded-lg bg-cyan-500 px-4 py-3 text-sm font-semibold text-slate-900 transition-colors duration-300 hover:bg-cyan-400"
-                        onClick={runAnalysis}
-                      >
-                        Analyze File
-                      </button>
-                    )}
-                  </div>
-                </div>
-
-                <div>
-                  <ResultPanel
-                    result={result}
-                    mediaType={mediaType}
-                    filename={file?.name}
-                    status={status}
-                  />
-                </div>
-              </div>
-
-              <ScanHistory
-                history={history}
-                onClear={clearHistory}
-                onArchive={archiveAllHistory}
-                emptyText={user ? "No scans saved for this account yet" : "No scans yet in this session"}
-              />
-            </>
-          )}
 
           {page === "how" && <HowItWorks />}
-          {page === "about" && <AboutUs />}
-          {page === "faqs" && <FAQs />}
-          {page === "history" && (
-            <HistoryCenter
-              activeHistory={history}
-              archivedHistory={archivedHistory}
-              onClearActive={clearHistory}
-              onArchiveAll={archiveAllHistory}
-              onClearArchived={clearArchivedHistory}
-              isLoggedIn={Boolean(user)}
-            />
-          )}
+          {page === "verifyView" && <ReportViewPage />}
         </div>
       </main>
 
@@ -550,7 +523,41 @@ export default function App() {
         onSave={handleSettingsSave}
       />
 
+      {howModalOpen && (
+        <div className={`modal-backdrop fixed inset-0 z-[95] flex items-center justify-center bg-slate-950/60 p-4 backdrop-blur-sm ${howModalClosing ? "modal-backdrop-closing" : ""}`}>
+          <div
+            id="how-modal-card"
+            style={howModalAnimStyle}
+            className={`how-modal-card modal-card-enter w-full max-w-4xl rounded-2xl border border-slate-200 bg-white p-4 shadow-2xl dark:border-slate-700 dark:bg-slate-900 ${howModalClosing ? "how-modal-card-closing" : ""}`}
+          >
+            <div className="mb-3 flex items-center justify-between">
+              <h2 className="text-lg font-semibold text-slate-900 dark:text-slate-100">How It Works</h2>
+              <button
+                type="button"
+                onClick={closeHowModal}
+                className="bubble-btn inline-flex h-[34px] w-[34px] items-center justify-center rounded-full border border-gray-300 bg-gray-100 text-gray-700 transition-colors duration-300 hover:border-[var(--indigo)] hover:text-[var(--indigo)] dark:border-slate-600 dark:bg-slate-700 dark:text-gray-100 dark:hover:border-[var(--indigo-mid)] dark:hover:text-[var(--indigo-mid)]"
+                aria-label="Close How It Works"
+              >
+                <X size={16} />
+              </button>
+            </div>
+            <HowItWorks />
+          </div>
+        </div>
+      )}
 
+      {splashVisible && (
+        <div className={`fixed inset-0 z-[120] flex items-center justify-center bg-slate-950 ${splashClosing ? "splash-overlay-closing" : "splash-overlay-enter"}`}>
+          <div id="splash-brand" style={splashAnimStyle} className={`inline-flex flex-col items-center gap-2 ${splashClosing ? "splash-brand-closing" : "splash-brand-enter"}`}>
+            <img
+              src={BRAND_LOGO_SRC}
+              alt="DeepShield logo"
+              className="brand-logo-orb splash-logo h-20 w-20 rounded-full object-cover"
+            />
+            <span className="brand-wordmark-dual font-[var(--font-head)] text-5xl font-extrabold tracking-tight">DEEPSHIELD</span>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

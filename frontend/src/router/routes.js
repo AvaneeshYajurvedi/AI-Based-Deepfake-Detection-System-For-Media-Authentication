@@ -35,101 +35,20 @@ export const ROUTES = {
       },
     },
   },
-  about: {
-    path: "/about",
-    headerTitle: "About Us",
+  verifyView: {
+    path: "/verify-view",
+    headerTitle: "Report Viewer",
     seo: {
-      title: "About DeepShield - AI Media Authentication",
-      description: "Learn what DeepShield does, who it helps, and how it supports media authenticity checks across image, video, and audio.",
-      robots: "index,follow",
+      title: "DeepShield Report Viewer",
+      description: "Read-only forensic verification page for generated DeepShield reports.",
+      robots: "noindex,nofollow",
       ogType: "website",
       schema: {
         "@context": "https://schema.org",
-        "@type": "Organization",
-        name: "DeepShield",
-        description: "AI media authentication platform.",
+        "@type": "WebPage",
+        name: "DeepShield Report Viewer",
+        description: "Read-only report verification viewer.",
       },
-    },
-  },
-  faqs: {
-    path: "/faqs",
-    headerTitle: "FAQs",
-    seo: {
-      title: "DeepShield FAQs - AI Media Authentication",
-      description: "Answers to common questions about DeepShield accuracy, storage, team workflows, and history controls.",
-      robots: "index,follow",
-      ogType: "article",
-      schema: {
-        "@context": "https://schema.org",
-        "@type": "FAQPage",
-        mainEntity: [
-          {
-            "@type": "Question",
-            name: "How accurate is DeepShield?",
-            acceptedAnswer: {
-              "@type": "Answer",
-              text: "Accuracy depends on media quality and manipulation style. DeepShield shows confidence and risk so decisions stay transparent.",
-            },
-          },
-          {
-            "@type": "Question",
-            name: "Do you store uploaded files?",
-            acceptedAnswer: {
-              "@type": "Answer",
-              text: "Only if local history storage is enabled in settings. You can clear or archive history anytime.",
-            },
-          },
-          {
-            "@type": "Question",
-            name: "Can I use this for team workflows?",
-            acceptedAnswer: {
-              "@type": "Answer",
-              text: "Yes. The roadmap includes shared workspaces, billing controls, and role-based access.",
-            },
-          },
-          {
-            "@type": "Question",
-            name: "What does archive do?",
-            acceptedAnswer: {
-              "@type": "Answer",
-              text: "Archive moves items out of active history but keeps them available for future review.",
-            },
-          },
-        ],
-      },
-    },
-  },
-  history: {
-    path: "/history",
-    headerTitle: "History",
-    seo: {
-      title: "DeepShield History",
-      description: "Review previously scanned media in DeepShield.",
-      robots: "noindex,nofollow",
-      ogType: "website",
-      schema: null,
-    },
-  },
-  login: {
-    path: "/login",
-    headerTitle: "Login",
-    seo: {
-      title: "Log In - DeepShield",
-      description: "Log in to DeepShield to view your saved scan history and personalize your experience.",
-      robots: "noindex,nofollow",
-      ogType: "website",
-      schema: null,
-    },
-  },
-  signup: {
-    path: "/signup",
-    headerTitle: "Sign Up",
-    seo: {
-      title: "Sign Up - DeepShield",
-      description: "Create a DeepShield account to save scan history and personalize your experience.",
-      robots: "noindex,nofollow",
-      ogType: "website",
-      schema: null,
     },
   },
 };

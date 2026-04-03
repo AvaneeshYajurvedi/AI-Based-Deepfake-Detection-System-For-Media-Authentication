@@ -11,20 +11,35 @@ Models:
 Decision: Binary only — REAL or FAKE. No UNCERTAIN.
 """
 
-import numpy as np
+import logging
 import os
 import uuid
-import logging
-import numpy as np
-import cv2
-import torch
-from PIL import Image
 from typing import Optional
+
+import numpy as np
+import torch
+from PIL import Image, ImageOps
 from facenet_pytorch import MTCNN
+
+# Hugging Face downloads can fail behind SSL-inspecting proxies on Windows.
+# Disabling SSL verification here keeps model loading from crashing startup;
+# if download still fails, the service falls back to the local frequency-based pipeline.
+os.environ.setdefault("HF_HUB_DISABLE_SSL_VERIFICATION", "1")
+
+try:
+    import cv2
+except Exception as exc:
+    cv2 = None
+    _CV2_IMPORT_ERROR = exc
+else:
+    _CV2_IMPORT_ERROR = None
 
 logging.basicConfig(level=logging.INFO,
                     format="%(asctime)s [%(levelname)s] %(message)s")
 log = logging.getLogger("image_service")
+
+if _CV2_IMPORT_ERROR is not None:
+    log.warning("OpenCV unavailable; using NumPy/PIL fallbacks: %s", _CV2_IMPORT_ERROR)
 
 device = torch.device("cpu")
 OUTPUT_DIR = "outputs"
@@ -47,9 +62,17 @@ def _load_vit_model():
     from transformers import ViTForImageClassification, ViTImageProcessor
     repo = "dima806/ai_vs_human_generated_image_detection"
     log.info("Loading ViT model: %s", repo)
-    processor = ViTImageProcessor.from_pretrained(repo)
-    model = ViTForImageClassification.from_pretrained(repo)
-    model.eval().to(device)
+    try:
+        processor = ViTImageProcessor.from_pretrained(repo)
+        model = ViTForImageClassification.from_pretrained(repo)
+        model.eval().to(device)
+    except Exception as exc:
+        log.warning("ViT unavailable; using fallback image signal only: %s", exc)
+
+        def predict(img: Image.Image) -> float:
+            return _fallback_frequency_score(img)
+
+        return predict
 
     id2label = model.config.id2label
     ai_idx = next(
@@ -78,9 +101,17 @@ def _load_siglip_model():
     from transformers import AutoImageProcessor, SiglipForImageClassification
     repo = "Ateeqq/ai-vs-human-image-detector"
     log.info("Loading SigLIP model: %s", repo)
-    processor = AutoImageProcessor.from_pretrained(repo)
-    model = SiglipForImageClassification.from_pretrained(repo)
-    model.eval().to(device)
+    try:
+        processor = AutoImageProcessor.from_pretrained(repo)
+        model = SiglipForImageClassification.from_pretrained(repo)
+        model.eval().to(device)
+    except Exception as exc:
+        log.warning("SigLIP unavailable; using fallback image signal only: %s", exc)
+
+        def predict(img: Image.Image) -> float:
+            return _fallback_frequency_score(img)
+
+        return predict
 
     id2label = model.config.id2label
     ai_idx = next(
@@ -108,9 +139,17 @@ def _load_siglip2_model():
     from transformers import AutoImageProcessor, SiglipForImageClassification
     repo = "prithivMLmods/Deepfake-Detect-Siglip2"
     log.info("Loading SigLIP2 model: %s", repo)
-    processor = AutoImageProcessor.from_pretrained(repo)
-    model = SiglipForImageClassification.from_pretrained(repo)
-    model.eval().to(device)
+    try:
+        processor = AutoImageProcessor.from_pretrained(repo)
+        model = SiglipForImageClassification.from_pretrained(repo)
+        model.eval().to(device)
+    except Exception as exc:
+        log.warning("SigLIP2 unavailable; using fallback image signal only: %s", exc)
+
+        def predict(img: Image.Image) -> float:
+            return _fallback_frequency_score(img)
+
+        return predict
 
     id2label = model.config.id2label
     fake_idx = next(
@@ -147,6 +186,51 @@ def _get_models():
 
 # ─── Signal: Frequency Domain Analysis ────────────────────────────────────────
 
+def _laplacian_variance(gray: np.ndarray) -> float:
+    padded = np.pad(gray.astype(np.float32), 1, mode="edge")
+    lap = (
+        padded[:-2, 1:-1]
+        + padded[2:, 1:-1]
+        + padded[1:-1, :-2]
+        + padded[1:-1, 2:]
+        - 4 * padded[1:-1, 1:-1]
+    )
+    return float(lap.var())
+
+
+def _fallback_frequency_score(pil_image: Image.Image) -> float:
+    gray = np.array(pil_image.convert("L").resize((256, 256)), dtype=np.float32)
+    spectrum = np.fft.fftshift(np.fft.fft2(gray))
+    magnitude = np.abs(spectrum)
+    h, w = magnitude.shape
+
+    low_freq = magnitude[h // 2 - h // 8:h // 2 + h // 8, w // 2 - w // 8:w // 2 + w // 8].mean()
+    high_freq = np.concatenate(
+        [
+            magnitude[:h // 4, :].ravel(),
+            magnitude[3 * h // 4:, :].ravel(),
+            magnitude[h // 4:3 * h // 4, :w // 4].ravel(),
+            magnitude[h // 4:3 * h // 4, 3 * w // 4:].ravel(),
+        ]
+    ).mean()
+    ratio = high_freq / (low_freq + 1e-6)
+
+    lap_var = _laplacian_variance(gray)
+
+    log.info("[Freq:fallback] ratio=%.4f  laplacian_var=%.2f", ratio, lap_var)
+
+    if lap_var < 200:
+        smoothness = 0.92
+    elif lap_var < 400:
+        smoothness = 0.75
+    elif lap_var < 800:
+        smoothness = 0.45
+    else:
+        smoothness = 0.12
+
+    freq = min(float(ratio) * 30, 1.0)
+    return round(float(freq * 0.25 + smoothness * 0.75), 4)
+
 def _frequency_score(pil_image: Image.Image) -> float:
     """
     DCT-based GAN fingerprint detection.
@@ -154,6 +238,9 @@ def _frequency_score(pil_image: Image.Image) -> float:
     Returns fake_probability (0-1).
     """
     try:
+        if cv2 is None:
+            return _fallback_frequency_score(pil_image)
+
         img = np.array(
             pil_image.convert("L").resize((256, 256)),
             dtype=np.float32
@@ -191,9 +278,28 @@ def _frequency_score(pil_image: Image.Image) -> float:
 
 def generate_heatmap(image_path: str, face_pil: Image.Image) -> Optional[str]:
     try:
-        face_np  = np.array(face_pil.resize((224, 224)))
+        face_rgb = face_pil.resize((224, 224)).convert("RGB")
+
+        if cv2 is None:
+            gray = np.array(face_rgb.convert("L"), dtype=np.float32)
+            gx = np.diff(gray, axis=1, append=gray[:, -1:])
+            gy = np.diff(gray, axis=0, append=gray[-1:, :])
+            mag = np.sqrt(gx ** 2 + gy ** 2)
+            mag = (255 * (mag - mag.min()) / (np.ptp(mag) + 1e-6)).astype(np.uint8)
+
+            heatmap = ImageOps.colorize(
+                Image.fromarray(mag, mode="L"),
+                black="#1d3557",
+                white="#f1fa8c"
+            ).convert("RGB")
+            blended = Image.blend(face_rgb, heatmap, alpha=0.4)
+            out_path = os.path.join(OUTPUT_DIR, f"heatmap_{uuid.uuid4().hex[:8]}.jpg")
+            blended.save(out_path, format="JPEG", quality=95)
+            return f"/outputs/{os.path.basename(out_path)}"
+
+        face_np = np.array(face_rgb)
         face_bgr = cv2.cvtColor(face_np, cv2.COLOR_RGB2BGR)
-        gray     = cv2.cvtColor(face_bgr, cv2.COLOR_BGR2GRAY)
+        gray = cv2.cvtColor(face_bgr, cv2.COLOR_BGR2GRAY)
 
         gx = cv2.Sobel(gray, cv2.CV_64F, 1, 0, ksize=3)
         gy = cv2.Sobel(gray, cv2.CV_64F, 0, 1, ksize=3)

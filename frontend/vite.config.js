@@ -10,6 +10,22 @@ export default defineConfig({
       '/analyze': {
         target: 'http://localhost:8000',
         changeOrigin: true,
+      },
+      '/report': {
+        target: 'http://localhost:8000',
+        changeOrigin: true,
+      },
+      '/verify': {
+        target: 'http://localhost:8000',
+        changeOrigin: true,
+      },
+      '/verify-full': {
+        target: 'http://localhost:8000',
+        changeOrigin: true,
+      },
+      '/outputs': {
+        target: 'http://localhost:8000',
+        changeOrigin: true,
       }
     }
   }

@@ -3,6 +3,7 @@ import { API_BASE_URL } from "./runtimeConfig";
 
 function joinUrl(base, endpoint) {
   const safeEndpoint = endpoint.startsWith("/") ? endpoint : `/${endpoint}`;
+  if (!base) return safeEndpoint;
   return `${base}${safeEndpoint}`;
 }
 
@@ -58,10 +59,6 @@ export async function apiRequest({
   timeout = 120000,
   onUploadProgress,
 }) {
-  if (!API_BASE_URL) {
-    throw new ApiRequestError("API base URL is not configured");
-  }
-
   try {
     const response = await axios({
       method,

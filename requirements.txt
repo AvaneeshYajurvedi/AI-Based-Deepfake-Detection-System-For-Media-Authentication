@@ -27,9 +27,16 @@ soundfile
 ffmpeg-python
 
 # Numeric
-numpy
+numpy<2
 
 # Utilities
 python-dotenv
 sentencepiece
 timm
+
+# Crypto + Reporting + Database
+cryptography
+qrcode
+reportlab
+sqlalchemy
+psycopg2-binary

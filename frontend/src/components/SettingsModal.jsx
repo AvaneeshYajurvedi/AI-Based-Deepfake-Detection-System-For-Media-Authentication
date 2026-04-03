@@ -1,12 +1,11 @@
 import { useEffect, useState } from "react";
-import { X, Settings2, Bell, Languages, MonitorCog, LayoutGrid } from "lucide-react";
+import { X, Settings2, Bell, Languages, MonitorCog } from "lucide-react";
 
 const defaultSettings = {
   theme: "light",
   language: "English",
   notifications: true,
   compactLayout: false,
-  autoSaveHistory: true,
 };
 
 export default function SettingsModal({ open, settings, onClose, onSave }) {
@@ -114,21 +113,6 @@ export default function SettingsModal({ open, settings, onClose, onSave }) {
                 <option>French</option>
                 <option>German</option>
               </select>
-            </label>
-            <label className="mt-4 block">
-              <span className="mb-2 block text-sm text-slate-600 dark:text-slate-300">Scan history</span>
-              <div className="flex items-center justify-between rounded-xl border border-slate-300 bg-white px-4 py-3 text-sm text-slate-900 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100">
-                <div>
-                  <div className="font-medium">Save locally</div>
-                  <div className="text-xs text-slate-500 dark:text-slate-400">Keep recent scan history on this device</div>
-                </div>
-                <input
-                  type="checkbox"
-                  checked={form.autoSaveHistory}
-                  onChange={updateField("autoSaveHistory")}
-                  className="h-4 w-4 rounded border-slate-300 text-cyan-500 focus:ring-cyan-500"
-                />
-              </div>
             </label>
           </section>
 
