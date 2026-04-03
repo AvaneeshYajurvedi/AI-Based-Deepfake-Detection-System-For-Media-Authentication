@@ -2,7 +2,7 @@
 
 Team Name :- Team Gensis
 
-Team Member :- Ritesh Ubale
-               Himanshu Kulkarni
-               Akhilesh Kotwal
-               Avaneesh Yajurvedi
+Team Member :- Ritesh Ubale,
+               Himanshu Kulkarni,
+               Akhilesh Kotwal,
+               Avaneesh Yajurvedi,
