@@ -1,0 +1,14 @@
+app/
+.venv/
+venv/
+.env
+.env.*
+requirements.txt
+*.db
+*.sqlite
+*.sqlite3
+outputs/
+temp/
+.git/
+README.md
+LICENSE
