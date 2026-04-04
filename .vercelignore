@@ -1,6 +1,9 @@
 app/
 .venv/
 venv/
+pyproject.toml
+setup.py
+__pycache__/
 .env
 .env.*
 requirements.txt
